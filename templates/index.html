@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>CareerMate V3 | 진로 기반 팀 매칭</title>
+  <link rel="stylesheet" href="/static/css/style.css?v=3.0.0" />
+</head>
+<body>
+<div id="toast"></div>
+<section id="loginView" class="login-shell">
+  <div class="login-card">
+    <div class="logo">CM</div>
+    <h1>CareerMate</h1>
+    <p>진로 기반 학교 팀 매칭 플랫폼</p>
+    <form id="loginForm">
+      <label>아이디<input id="loginId" autocomplete="username" required></label>
+      <label>비밀번호<input id="loginPw" type="password" autocomplete="current-password" required></label>
+      <button class="primary" type="submit">로그인</button>
+    </form>
+    <details><summary>데모 계정</summary><small>관리자: admin / Admin123!<br>학생: kimsky / student123</small></details>
+  </div>
+</section>
+
+<div id="appView" class="hidden">
+  <header class="topbar">
+    <div class="brand"><div class="mini-logo">CM</div><b>CareerMate</b><small style="margin-left:6px;opacity:.55">V3</small></div>
+    <div class="top-actions"><span id="hello"></span><button id="bellBtn" class="icon-btn">🔔 <b id="unreadBadge"></b></button><button id="logoutBtn" class="ghost">로그아웃</button></div>
+  </header>
+  <main id="content"></main>
+  <nav id="studentNav" class="bottom-nav hidden">
+    <button data-page="home">⌂<span>홈</span></button>
+    <button data-page="find">⌕<span>팀 찾기</span></button>
+    <button data-page="myteams">◫<span>내 팀</span></button>
+    <button data-page="notifications">🔔<span>알림</span></button>
+    <button data-page="profile">☺<span>MY</span></button>
+  </nav>
+</div>
+<script src="/static/js/app.js?v=3.0.0"></script>
+</body>
+</html>
