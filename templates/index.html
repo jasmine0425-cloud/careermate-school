@@ -18,7 +18,7 @@
       <label>비밀번호<input id="loginPw" type="password" autocomplete="current-password" required></label>
       <button class="primary" type="submit">로그인</button>
     </form>
-    <details><summary>데모 계정</summary><small>관리자: admin / Admin123!<br>학생: kimsky / student123</small></details>
+    {% if seed_demo %}<details><summary>데모 계정</summary><small>관리자: admin / Admin123!<br>학생: kimsky / student123</small></details>{% endif %}
   </div>
 </section>
 

@@ -1,15 +1,23 @@
-import os, json, csv, io, sqlite3
+import os, json, csv, io
+from database import connect_database, IntegrityError
 from datetime import datetime
 from functools import wraps
 from flask import Flask, request, jsonify, session, render_template, Response
 from werkzeug.security import generate_password_hash, check_password_hash
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DB_PATH = os.path.join(BASE_DIR, 'school_team_match.db')
+DB_PATH = os.path.abspath(os.environ.get('DB_PATH', os.path.join(BASE_DIR, 'school_team_match.db')))
+DATABASE_URL = os.environ.get('DATABASE_URL', '')
+PRODUCTION = os.environ.get('APP_ENV') == 'production'
+SEED_DEMO = os.environ.get('SEED_DEMO', 'false' if PRODUCTION else 'true').lower() == 'true'
 
 app = Flask(__name__)
-app.secret_key = os.environ.get('SECRET_KEY', 'change-this-secret-key-before-deploy')
-app.config.update(SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE='Lax')
+app.secret_key = os.environ.get('SECRET_KEY')
+if PRODUCTION and (not app.secret_key or len(app.secret_key) < 32 or app.secret_key == 'change-this-secret-key-before-deploy'):
+    raise RuntimeError('운영 환경에서는 32자 이상의 SECRET_KEY를 설정하세요.')
+if not app.secret_key:
+    app.secret_key = 'change-this-secret-key-before-deploy'
+app.config.update(SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE='Lax', SESSION_COOKIE_SECURE=PRODUCTION)
 
 CAREER_CATEGORIES = ['컴퓨터 / IT','AI','소프트웨어','전자공학','반도체','기계공학','생명과학','화학','의학 / 보건','경영 / 경제','심리 / 사회','교육','미디어','디자인','건축','인문','법학','기타']
 ROLE_OPTIONS = ['팀장','기획','자료조사','개발','디자인','발표','PPT 제작','보고서 작성','실험','데이터 분석','하드웨어 제작','영상 제작','기타']
@@ -20,10 +28,7 @@ def now():
 
 
 def db():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    conn.execute('PRAGMA foreign_keys = ON')
-    return conn
+    return connect_database(DB_PATH, DATABASE_URL)
 
 
 def jdump(v):
@@ -49,9 +54,7 @@ def user_public(r):
     }
 
 
-def init_db():
-    con = db()
-    con.executescript('''
+SCHEMA = '''
     CREATE TABLE IF NOT EXISTS users (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       loginId TEXT UNIQUE NOT NULL,
@@ -143,10 +146,21 @@ def init_db():
       createdAt TEXT NOT NULL,
       FOREIGN KEY(userId) REFERENCES users(id) ON DELETE CASCADE
     );
-    ''')
-    if not con.execute("SELECT id FROM users WHERE loginId='admin'").fetchone():
+    '''
+
+
+def init_db():
+    os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
+    con = db()
+    con.executescript(SCHEMA)
+    admin_id = os.environ.get('ADMIN_LOGIN', 'admin')
+    if not con.execute("SELECT id FROM users WHERE role='ADMIN'").fetchone():
+        admin_password = os.environ.get('ADMIN_PASSWORD', '' if PRODUCTION else 'Admin123!')
+        if PRODUCTION and len(admin_password) < 12:
+            con.close()
+            raise RuntimeError('최초 관리자 계정을 위한 12자 이상의 ADMIN_PASSWORD를 설정하세요.')
         con.execute('INSERT INTO users(loginId,passwordHash,role,name,createdAt) VALUES(?,?,?,?,?)',
-                    ('admin', generate_password_hash('Admin123!'), 'ADMIN', '학교 관리자', now()))
+                    (admin_id, generate_password_hash(admin_password), 'ADMIN', '학교 관리자', now()))
     sample_students = [
       ('20261001','김하늘',1,1,1,'kimsky','AI','컴퓨터공학','AI 개발자',['AI','웹 개발','앱 개발'],['Python','Flask','데이터'],['개발','데이터 분석']),
       ('20261002','박서연',1,1,2,'parksy','디자인','산업디자인','UX 디자이너',['디자인','UI/UX','영상'],['Figma','UI','브랜딩'],['디자인','PPT 제작']),
@@ -154,12 +168,12 @@ def init_db():
       ('20261004','최민지',1,2,4,'choimj','경영 / 경제','경영학','서비스 기획자',['마케팅','사회문제','창업'],['기획','시장조사','발표'],['기획','발표']),
       ('20261005','정다은',1,3,5,'jungde','생명과학','생명공학','연구원',['바이오','의료','환경'],['실험','바이오','환경'],['실험','자료조사']),
     ]
-    for s in sample_students:
+    for s in sample_students if SEED_DEMO else []:
         if not con.execute('SELECT id FROM users WHERE loginId=?',(s[5],)).fetchone():
             con.execute('''INSERT INTO users(studentNumber,name,grade,classNumber,number,loginId,passwordHash,role,careerCategory,desiredMajor,desiredJob,interests,keywords,preferredRoles,createdAt)
                            VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',
                         (s[0],s[1],s[2],s[3],s[4],s[5],generate_password_hash('student123'),'STUDENT',s[6],s[7],s[8],jdump(s[9]),jdump(s[10]),jdump(s[11]),now()))
-    if not con.execute('SELECT id FROM activities').fetchone():
+    if SEED_DEMO and not con.execute('SELECT id FROM activities').fetchone():
         con.execute('''INSERT INTO activities(title,description,startDate,endDate,minMembers,maxMembers,recommendedFields,recruitmentDeadline,createdAt)
                        VALUES(?,?,?,?,?,?,?,?,?)''',
                     ('AI 융합 캠프','진로 융합형 프로젝트 팀 활동','2026-09-20','2026-10-10',2,5,jdump(['AI','소프트웨어','디자인','전자공학']),'2026-09-19',now()))
@@ -222,12 +236,21 @@ def auto_team_status(con, team_id):
 
 
 @app.route('/')
-def index(): return render_template('index.html')
+def index(): return render_template('index.html', seed_demo=SEED_DEMO)
+
+@app.get('/healthz')
+def healthz():
+    con = db()
+    try:
+        con.execute('SELECT 1 FROM users LIMIT 1').fetchone()
+    finally:
+        con.close()
+    return jsonify({'ok': True})
 
 @app.post('/api/login')
 def login():
     data=request.get_json(force=True); con=db()
-    u=con.execute('SELECT * FROM users WHERE loginId=? AND accountStatus="ACTIVE"',(data.get('loginId',''),)).fetchone(); con.close()
+    u=con.execute("SELECT * FROM users WHERE loginId=? AND accountStatus='ACTIVE'",(data.get('loginId',''),)).fetchone(); con.close()
     if not u or not check_password_hash(u['passwordHash'],data.get('password','')):
         return jsonify({'error':'아이디 또는 비밀번호가 올바르지 않습니다.'}),400
     session.clear(); session['user_id']=u['id']; session['role']=u['role']
@@ -266,7 +289,7 @@ def admin_add_student():
                            VALUES(?,?,'STUDENT',?,?,?,?,?,?,?,?,?,?,?,?)''',
                         (d['loginId'],generate_password_hash(d.get('password','student123')),d['name'],d.get('studentNumber',''),d.get('grade'),d.get('classNumber'),d.get('number'),d.get('careerCategory',''),d.get('desiredMajor',''),d.get('desiredJob',''),jdump(d.get('interests',[])),jdump(d.get('keywords',[])),jdump(d.get('preferredRoles',[])),now()))
         con.commit(); return jsonify({'ok':True,'id':cur.lastrowid})
-    except sqlite3.IntegrityError:
+    except IntegrityError:
         return jsonify({'error':'이미 사용 중인 아이디입니다.'}),400
     finally: con.close()
 
@@ -294,7 +317,7 @@ def admin_update_student(uid):
             con.execute('UPDATE users SET passwordHash=? WHERE id=?', (generate_password_hash(d['password']), uid))
         con.commit()
         return jsonify({'ok': True})
-    except sqlite3.IntegrityError:
+    except IntegrityError:
         con.rollback()
         return jsonify({'error': '이미 사용 중인 로그인 아이디입니다.'}), 400
     finally:
@@ -389,7 +412,7 @@ def create_team():
         try:
             con.execute("INSERT INTO teamMembers(teamId,userId,status,createdAt) VALUES(?,?,'waiting',?)",(tid,int(uid),now()))
             notify(con,int(uid),'TEAM_INVITE','팀 참여 확인 요청',f"{d['teamName']} 팀에 함께하기로 한 팀원으로 등록되었습니다.",tid)
-        except sqlite3.IntegrityError: pass
+        except IntegrityError: pass
     con.commit(); con.close(); return jsonify({'ok':True,'teamId':tid})
 
 
@@ -428,7 +451,7 @@ def invite_student(tid):
     if confirmed_in_activity(con,uid,t['activityId'],tid): con.close(); return jsonify({'error':'해당 학생은 이미 이 활동의 다른 팀에 참여 중입니다.'}),400
     if team_count(con,tid)>=t['maxMembers']: con.close(); return jsonify({'error':'팀 정원이 가득 찼습니다.'}),400
     try: con.execute("INSERT INTO teamMembers(teamId,userId,role,status,createdAt) VALUES(?,?,?,'waiting',?)",(tid,uid,d.get('role',''),now()))
-    except sqlite3.IntegrityError:
+    except IntegrityError:
         con.execute("UPDATE teamMembers SET status='waiting',role=? WHERE teamId=? AND userId=?",(d.get('role',''),tid,uid))
     notify(con,uid,'TEAM_INVITE','팀 참여 확인 요청',f"{t['teamName']} 팀에 초대되었습니다.",tid); con.commit(); con.close(); return jsonify({'ok':True})
 
@@ -571,4 +594,4 @@ def options(): return jsonify({'careerCategories':CAREER_CATEGORIES,'roles':ROLE
 
 if __name__ == '__main__':
     init_db()
-    app.run(host='0.0.0.0', port=int(os.environ.get('PORT',5000)), debug=True)
+    app.run(host='0.0.0.0', port=int(os.environ.get('PORT',5000)), debug=os.environ.get('FLASK_DEBUG') == '1')
