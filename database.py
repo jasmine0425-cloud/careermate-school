@@ -60,7 +60,7 @@ class PostgresConnection:
                                          cursor_factory=psycopg.ClientCursor,
                                          connect_timeout=10, prepare_threshold=None,
                                          **options)
-        self.connection.execute('CREATE SCHEMA IF NOT EXISTS careermate')
+        # Connecting to an existing Supabase schema must not execute DDL.
         self.connection.execute('SET search_path TO careermate, pg_catalog')
 
     def execute(self, statement, parameters=()):
