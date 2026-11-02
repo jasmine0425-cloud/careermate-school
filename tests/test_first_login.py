@@ -27,6 +27,11 @@ class FirstLoginTests(unittest.TestCase):
         self.module.DB_PATH = self.original
         self.tmp.cleanup()
 
+    def test_health_readiness(self):
+        response = self.client.get('/api/health')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json, {'ok': True})
+
     def test_password_change_required(self):
         login = self.client.post('/api/login', json={'loginId':'ks2610101','password':'Temporary-Pass-123!'})
         self.assertEqual(login.status_code, 200)
