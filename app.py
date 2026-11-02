@@ -313,7 +313,7 @@ def admin_add_student():
     con=db()
     try:
         cur=con.execute('''INSERT INTO users(loginId,passwordHash,role,name,studentNumber,grade,classNumber,number,careerCategory,desiredMajor,desiredJob,interests,keywords,preferredRoles,createdAt,mustChangePassword)
-                           VALUES(?,?,'STUDENT',?,?,?,?,?,?,?,?,?,?,?, ?,1)''',
+                           VALUES(?,?,'STUDENT',?,?,?,?,?,?,?,?,?,?,?,?,1)''',
                         (d['loginId'],generate_password_hash(d.get('password') or os.urandom(18).hex()),d['name'],d.get('studentNumber',''),d.get('grade'),d.get('classNumber'),d.get('number'),d.get('careerCategory',''),d.get('desiredMajor',''),d.get('desiredJob',''),jdump(d.get('interests',[])),jdump(d.get('keywords',[])),jdump(d.get('preferredRoles',[])),now()))
         con.commit(); return jsonify({'ok':True,'id':cur.lastrowid})
     except sqlite3.IntegrityError:
