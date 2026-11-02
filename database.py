@@ -63,7 +63,7 @@ class PostgresConnection:
                                          connect_timeout=10, prepare_threshold=None,
                                          **options)
         # Connecting to an existing Supabase schema must not execute DDL.
-        self.connection.execute('SET search_path TO careermate, pg_catalog')
+        self.connection.execute('SET search_path TO careermate')
 
     def execute(self, statement, parameters=()):
         sql = postgres_sql(statement).rstrip().rstrip(';')
