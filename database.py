@@ -86,7 +86,6 @@ class PostgresConnection:
         return PostgresCursor(cursor, lastrowid)
 
     def executescript(self, script):
-        self.connection.execute('CREATE SCHEMA IF NOT EXISTS careermate')
         for statement in script.split(';'):
             if statement.strip():
                 self.execute(statement)
