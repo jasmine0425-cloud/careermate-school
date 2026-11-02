@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - fix/security-hardening-20261102
+      - feature/postgres-integration-20261102
   pull_request:
     branches:
       - main
