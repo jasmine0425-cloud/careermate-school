@@ -276,7 +276,7 @@ def logout(): session.clear(); return jsonify({'ok':True})
 def me():
     con=db(); u=con.execute('SELECT * FROM users WHERE id=?',(session['user_id'],)).fetchone()
     unread=con.execute('SELECT COUNT(*) c FROM notifications WHERE userId=? AND isRead=0',(u['id'],)).fetchone()['c']; con.close()
-    d=user_public(u); d.update({'role':u['role'],'loginId':u['loginId'],'unread':unread}); return jsonify(d)
+    d=user_public(u); d.update({'role':u['role'],'loginId':u['loginId'],'unread':unread,'mustChangePassword':bool(u['mustChangePassword'])}); return jsonify(d)
 
 @app.put('/api/profile')
 @student_required
