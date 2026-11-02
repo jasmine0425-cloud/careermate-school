@@ -146,10 +146,11 @@ def init_db():
       FOREIGN KEY(userId) REFERENCES users(id) ON DELETE CASCADE
     );
     ''')
-    try:
-        con.execute('ALTER TABLE users ADD COLUMN mustChangePassword INTEGER NOT NULL DEFAULT 0')
-    except sqlite3.OperationalError as exc:
-        if 'duplicate column' not in str(exc).lower(): raise
+    if not os.environ.get('DATABASE_URL'):
+        try:
+            con.execute('ALTER TABLE users ADD COLUMN mustChangePassword INTEGER NOT NULL DEFAULT 0')
+        except sqlite3.OperationalError as exc:
+            if 'duplicate column' not in str(exc).lower(): raise
     if os.environ.get('ADMIN_PASSWORD') and len(os.environ['ADMIN_PASSWORD']) < 12:
         raise RuntimeError('ADMIN_PASSWORD must be at least 12 characters')
     if os.environ.get('ADMIN_PASSWORD') and not con.execute("SELECT id FROM users WHERE loginId='admin'").fetchone():
