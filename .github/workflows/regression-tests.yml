@@ -8,6 +8,7 @@ on:
   pull_request:
     branches:
       - main
+      - fix/security-hardening-20261102
   workflow_dispatch:
 
 jobs:
