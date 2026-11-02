@@ -31,6 +31,8 @@ def postgres_sql(statement):
             if value == '"ACTIVE"':
                 return "'ACTIVE'"
             return value
+        if value in ('CURRENT_TIMESTAMP', 'CURRENT_DATE', 'CURRENT_TIME'):
+            return value
         if not value.isupper() and any(c.isupper() for c in value):
             return '"' + value + '"'
         return value
