@@ -6,10 +6,14 @@ on:
       - fix/security-hardening-20261102
       - feature/postgres-integration-20261102
       - fix/supabase-readonly-compat-20261102
+      - feature/student-id-scheme-20261102
   pull_request:
     branches:
       - main
       - fix/security-hardening-20261102
+      - feature/postgres-integration-20261102
+      - fix/supabase-readonly-compat-20261102
+      - docs/render-deployment-readiness-20261102
   workflow_dispatch:
 
 jobs:
