@@ -11,6 +11,9 @@ from unittest.mock import patch
 class PostgreSQLWorkflowTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
+        url = os.environ["CAREERMATE_PG_TEST_URL"]
+        if "vywwyjyhtsetohnjflqr" in url or "supabase.co" in url:
+            raise RuntimeError("Integration tests must not target the existing Supabase project")
         import app as module
         cls.module = module
         cls.patchers = [
