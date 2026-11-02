@@ -622,6 +622,20 @@ def stats():
       'recruiting': con.execute("SELECT COUNT(*) c FROM recruitmentPosts WHERE status='OPEN'").fetchone()['c'],
     }; con.close(); return jsonify(d)
 
+@app.get('/api/health')
+def health():
+    """Database-backed readiness check; do not expose credentials or private records."""
+    try:
+        con = db()
+        try:
+            con.execute('SELECT 1').fetchone()
+        finally:
+            con.close()
+    except Exception:
+        app.logger.exception('Database readiness check failed')
+        return jsonify({'ok': False}), 503
+    return jsonify({'ok': True})
+
 @app.get('/api/options')
 def options(): return jsonify({'careerCategories':CAREER_CATEGORIES,'roles':ROLE_OPTIONS})
 
