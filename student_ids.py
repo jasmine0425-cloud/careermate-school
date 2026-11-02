@@ -5,7 +5,7 @@ No accounts are created by this module.
 """
 import re
 
-_PATTERN = re.compile(r"^ks(\d{2})([123])(0[1-9]|10)(0[1-9]|[1-9]\d)$")
+_PATTERN = re.compile(r"^ks(\d{2})([123])(0[1-9]|10)(0[1-9]|[1-3]\d|40)$")
 
 
 def make_student_login_id(admission_year, grade, class_number, student_number):
