@@ -330,7 +330,7 @@ def download_student_csv_template():
     output = io.StringIO()
     writer = csv.writer(output, lineterminator='\n')
     writer.writerow(['아이디','이름','학번','학년','반','번호','초기비밀번호','진로','희망학과','희망직업','관심분야','관심키워드','선호역할'])
-    writer.writerow(['10901','김예시','10901','1','9','1','student123','컴퓨터 / IT','컴퓨터공학과','AI 개발자','AI,웹 개발','Python,AI','개발,발표'])
+    writer.writerow(['10901','김예시','10901','1','9','1','ChangeMe123!X','컴퓨터 / IT','컴퓨터공학과','AI 개발자','AI,웹 개발','Python,AI','개발,발표'])
     data = '\ufeff' + output.getvalue()
     return Response(data, mimetype='text/csv; charset=utf-8', headers={
         'Content-Disposition': 'attachment; filename=student_import_template.csv'
