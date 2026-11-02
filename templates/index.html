@@ -18,10 +18,11 @@
       <label>비밀번호<input id="loginPw" type="password" autocomplete="current-password" required></label>
       <button class="primary" type="submit">로그인</button>
     </form>
-    <details><summary>데모 계정</summary><small>관리자: admin / Admin123!<br>학생: kimsky / student123</small></details>
+
   </div>
 </section>
 
+<section id="passwordChangeView" class="login-shell hidden"><div class="login-card"><h1>첫 로그인 비밀번호 변경</h1><form id="passwordChangeForm"><label>현재 비밀번호<input id="oldPassword" type="password" required></label><label>새 비밀번호 (12자 이상)<input id="newPassword" type="password" minlength="12" required></label><label>새 비밀번호 확인<input id="confirmPassword" type="password" minlength="12" required></label><button class="primary" type="submit">변경하기</button></form></div></section>
 <div id="appView" class="hidden">
   <header class="topbar">
     <div class="brand"><div class="mini-logo">CM</div><b>CareerMate</b><small style="margin-left:6px;opacity:.55">V3</small></div>

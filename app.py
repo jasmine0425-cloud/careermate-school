@@ -3,13 +3,17 @@ from datetime import datetime
 from functools import wraps
 from flask import Flask, request, jsonify, session, render_template, Response
 from werkzeug.security import generate_password_hash, check_password_hash
+from database import connect_database
+from student_ids import make_student_login_id, validate_student_login_id
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(BASE_DIR, 'school_team_match.db')
 
 app = Flask(__name__)
-app.secret_key = os.environ.get('SECRET_KEY', 'change-this-secret-key-before-deploy')
-app.config.update(SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE='Lax')
+app.secret_key = os.environ.get('SECRET_KEY') or os.urandom(32).hex()
+app.config.update(SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE='Lax', SESSION_COOKIE_SECURE=os.environ.get('FLASK_ENV') == 'production')
+if os.environ.get('FLASK_ENV') == 'production' and not os.environ.get('SECRET_KEY'):
+    raise RuntimeError('SECRET_KEY is required in production')
 
 CAREER_CATEGORIES = ['컴퓨터 / IT','AI','소프트웨어','전자공학','반도체','기계공학','생명과학','화학','의학 / 보건','경영 / 경제','심리 / 사회','교육','미디어','디자인','건축','인문','법학','기타']
 ROLE_OPTIONS = ['팀장','기획','자료조사','개발','디자인','발표','PPT 제작','보고서 작성','실험','데이터 분석','하드웨어 제작','영상 제작','기타']
@@ -20,10 +24,7 @@ def now():
 
 
 def db():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    conn.execute('PRAGMA foreign_keys = ON')
-    return conn
+    return connect_database(DB_PATH, os.environ.get('DATABASE_URL', ''))
 
 
 def jdump(v):
@@ -69,6 +70,7 @@ def init_db():
       keywords TEXT DEFAULT '[]',
       preferredRoles TEXT DEFAULT '[]',
       accountStatus TEXT DEFAULT 'ACTIVE',
+      mustChangePassword INTEGER NOT NULL DEFAULT 0,
       createdAt TEXT NOT NULL
     );
     CREATE TABLE IF NOT EXISTS activities (
@@ -144,9 +146,16 @@ def init_db():
       FOREIGN KEY(userId) REFERENCES users(id) ON DELETE CASCADE
     );
     ''')
-    if not con.execute("SELECT id FROM users WHERE loginId='admin'").fetchone():
+    if not os.environ.get('DATABASE_URL'):
+        try:
+            con.execute('ALTER TABLE users ADD COLUMN mustChangePassword INTEGER NOT NULL DEFAULT 0')
+        except sqlite3.OperationalError as exc:
+            if 'duplicate column' not in str(exc).lower(): raise
+    if os.environ.get('ADMIN_PASSWORD') and len(os.environ['ADMIN_PASSWORD']) < 12:
+        raise RuntimeError('ADMIN_PASSWORD must be at least 12 characters')
+    if os.environ.get('ADMIN_PASSWORD') and not con.execute("SELECT id FROM users WHERE loginId='admin'").fetchone():
         con.execute('INSERT INTO users(loginId,passwordHash,role,name,createdAt) VALUES(?,?,?,?,?)',
-                    ('admin', generate_password_hash('Admin123!'), 'ADMIN', '학교 관리자', now()))
+                    ('admin', generate_password_hash(os.environ['ADMIN_PASSWORD']), 'ADMIN', '학교 관리자', now()))
     sample_students = [
       ('20261001','김하늘',1,1,1,'kimsky','AI','컴퓨터공학','AI 개발자',['AI','웹 개발','앱 개발'],['Python','Flask','데이터'],['개발','데이터 분석']),
       ('20261002','박서연',1,1,2,'parksy','디자인','산업디자인','UX 디자이너',['디자인','UI/UX','영상'],['Figma','UI','브랜딩'],['디자인','PPT 제작']),
@@ -154,12 +163,12 @@ def init_db():
       ('20261004','최민지',1,2,4,'choimj','경영 / 경제','경영학','서비스 기획자',['마케팅','사회문제','창업'],['기획','시장조사','발표'],['기획','발표']),
       ('20261005','정다은',1,3,5,'jungde','생명과학','생명공학','연구원',['바이오','의료','환경'],['실험','바이오','환경'],['실험','자료조사']),
     ]
-    for s in sample_students:
+    for s in (sample_students if os.environ.get('ENABLE_DEMO_DATA') == '1' else []):
         if not con.execute('SELECT id FROM users WHERE loginId=?',(s[5],)).fetchone():
             con.execute('''INSERT INTO users(studentNumber,name,grade,classNumber,number,loginId,passwordHash,role,careerCategory,desiredMajor,desiredJob,interests,keywords,preferredRoles,createdAt)
                            VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',
-                        (s[0],s[1],s[2],s[3],s[4],s[5],generate_password_hash('student123'),'STUDENT',s[6],s[7],s[8],jdump(s[9]),jdump(s[10]),jdump(s[11]),now()))
-    if not con.execute('SELECT id FROM activities').fetchone():
+                        (s[0],s[1],s[2],s[3],s[4],s[5],generate_password_hash(os.environ.get('DEMO_STUDENT_PASSWORD') or os.urandom(18).hex()),'STUDENT',s[6],s[7],s[8],jdump(s[9]),jdump(s[10]),jdump(s[11]),now()))
+    if os.environ.get('ENABLE_DEMO_DATA') == '1' and not con.execute('SELECT id FROM activities').fetchone():
         con.execute('''INSERT INTO activities(title,description,startDate,endDate,minMembers,maxMembers,recommendedFields,recruitmentDeadline,createdAt)
                        VALUES(?,?,?,?,?,?,?,?,?)''',
                     ('AI 융합 캠프','진로 융합형 프로젝트 팀 활동','2026-09-20','2026-10-10',2,5,jdump(['AI','소프트웨어','디자인','전자공학']),'2026-09-19',now()))
@@ -170,6 +179,7 @@ def login_required(fn):
     @wraps(fn)
     def wrap(*args, **kwargs):
         if not session.get('user_id'): return jsonify({'error':'로그인이 필요합니다.'}), 401
+        if session.get('must_change_password') and request.endpoint != 'me': return jsonify({'error':'먼저 임시 비밀번호를 변경해 주세요.','mustChangePassword':True}), 403
         return fn(*args, **kwargs)
     return wrap
 
@@ -188,6 +198,7 @@ def student_required(fn):
     def wrap(*args, **kwargs):
         if not session.get('user_id'): return jsonify({'error':'로그인이 필요합니다.'}), 401
         if session.get('role') != 'STUDENT': return jsonify({'error':'학생 계정만 사용할 수 있습니다.'}), 403
+        if session.get('must_change_password'): return jsonify({'error':'먼저 임시 비밀번호를 변경해 주세요.','mustChangePassword':True}), 403
         return fn(*args, **kwargs)
     return wrap
 
@@ -231,7 +242,31 @@ def login():
     if not u or not check_password_hash(u['passwordHash'],data.get('password','')):
         return jsonify({'error':'아이디 또는 비밀번호가 올바르지 않습니다.'}),400
     session.clear(); session['user_id']=u['id']; session['role']=u['role']
-    return jsonify({'ok':True,'role':u['role'],'name':u['name']})
+    session['must_change_password']=bool(u.get('mustChangePassword', 0) if isinstance(u, dict) else u['mustChangePassword'])
+    return jsonify({'ok':True,'role':u['role'],'name':u['name'],'mustChangePassword':session['must_change_password']})
+
+@app.post('/api/change-password')
+def change_password():
+    if not session.get('user_id'):
+        return jsonify({'error':'로그인이 필요합니다.'}), 401
+    data=request.get_json(silent=True) or {}
+    old=data.get('currentPassword','')
+    new=data.get('newPassword','')
+    if not isinstance(old,str) or not isinstance(new,str) or len(new)<12 or old==new:
+        return jsonify({'error':'새 비밀번호는 기존과 달라야 하며 12자 이상이어야 합니다.'}), 400
+    con=db()
+    try:
+        u=con.execute('SELECT passwordHash FROM users WHERE id=?',(session['user_id'],)).fetchone()
+        if not u or not check_password_hash(u['passwordHash'],old):
+            return jsonify({'error':'현재 비밀번호가 올바르지 않습니다.'}), 403
+        con.execute('UPDATE users SET passwordHash=?,mustChangePassword=0 WHERE id=?',
+                    (generate_password_hash(new),session['user_id']))
+        con.commit()
+        session['must_change_password']=False
+        return jsonify({'ok':True})
+    finally:
+        con.close()
+
 
 @app.post('/api/logout')
 def logout(): session.clear(); return jsonify({'ok':True})
@@ -241,7 +276,7 @@ def logout(): session.clear(); return jsonify({'ok':True})
 def me():
     con=db(); u=con.execute('SELECT * FROM users WHERE id=?',(session['user_id'],)).fetchone()
     unread=con.execute('SELECT COUNT(*) c FROM notifications WHERE userId=? AND isRead=0',(u['id'],)).fetchone()['c']; con.close()
-    d=user_public(u); d.update({'role':u['role'],'loginId':u['loginId'],'unread':unread}); return jsonify(d)
+    d=user_public(u); d.update({'role':u['role'],'loginId':u['loginId'],'unread':unread,'mustChangePassword':bool(u['mustChangePassword'])}); return jsonify(d)
 
 @app.put('/api/profile')
 @student_required
@@ -260,11 +295,27 @@ def admin_students():
 @app.post('/api/admin/students')
 @admin_required
 def admin_add_student():
-    d=request.get_json(force=True); con=db()
+    d=request.get_json(force=True)
+    if not d.get('loginId') and all(d.get(k) is not None for k in ('admissionYear', 'grade', 'classNumber', 'number')):
+        try:
+            d['loginId'] = make_student_login_id(int(d['admissionYear']), int(d['grade']), int(d['classNumber']), int(d['number']))
+        except (ValueError, TypeError):
+            return jsonify({'error':'입학연도, 학년(1~3), 반(1~10), 번호(1~40)를 확인해 주세요.'}),400
+    if str(d.get('loginId', '')).startswith('ks'):
+        try:
+            info = validate_student_login_id(d['loginId'])
+            for field, key in [('grade','grade'), ('classNumber','class_number'), ('number','student_number')]:
+                if d.get(field) is not None and int(d[field]) != info[key]:
+                    raise ValueError('ID does not match student fields')
+        except (ValueError, TypeError):
+            return jsonify({'error':'학생 아이디 형식 또는 학년·반·번호가 일치하지 않습니다.'}),400
+    if not d.get('password') or len(str(d['password'])) < 12:
+        return jsonify({'error':'학생 초기 비밀번호는 12자 이상으로 지정해야 합니다.'}),400
+    con=db()
     try:
-        cur=con.execute('''INSERT INTO users(loginId,passwordHash,role,name,studentNumber,grade,classNumber,number,careerCategory,desiredMajor,desiredJob,interests,keywords,preferredRoles,createdAt)
-                           VALUES(?,?,'STUDENT',?,?,?,?,?,?,?,?,?,?,?,?)''',
-                        (d['loginId'],generate_password_hash(d.get('password','student123')),d['name'],d.get('studentNumber',''),d.get('grade'),d.get('classNumber'),d.get('number'),d.get('careerCategory',''),d.get('desiredMajor',''),d.get('desiredJob',''),jdump(d.get('interests',[])),jdump(d.get('keywords',[])),jdump(d.get('preferredRoles',[])),now()))
+        cur=con.execute('''INSERT INTO users(loginId,passwordHash,role,name,studentNumber,grade,classNumber,number,careerCategory,desiredMajor,desiredJob,interests,keywords,preferredRoles,createdAt,mustChangePassword)
+                           VALUES(?,?,'STUDENT',?,?,?,?,?,?,?,?,?,?,?,?,1)''',
+                        (d['loginId'],generate_password_hash(d.get('password') or os.urandom(18).hex()),d['name'],d.get('studentNumber',''),d.get('grade'),d.get('classNumber'),d.get('number'),d.get('careerCategory',''),d.get('desiredMajor',''),d.get('desiredJob',''),jdump(d.get('interests',[])),jdump(d.get('keywords',[])),jdump(d.get('preferredRoles',[])),now()))
         con.commit(); return jsonify({'ok':True,'id':cur.lastrowid})
     except sqlite3.IntegrityError:
         return jsonify({'error':'이미 사용 중인 아이디입니다.'}),400
@@ -279,6 +330,8 @@ def admin_update_student(uid):
     if not login_id or not name:
         return jsonify({'error': '이름과 로그인 아이디는 필수입니다.'}), 400
 
+    if d.get('password') and len(str(d['password'])) < 12:
+        return jsonify({'error':'비밀번호는 12자 이상이어야 합니다.'}),400
     con = db()
     try:
         exists = con.execute("SELECT id FROM users WHERE id=? AND role='STUDENT'", (uid,)).fetchone()
@@ -304,9 +357,9 @@ def admin_update_student(uid):
 @admin_required
 def admin_reset_student_password(uid):
     d = request.get_json(silent=True) or {}
-    new_password = str(d.get('password') or 'student123').strip()
-    if len(new_password) < 4:
-        return jsonify({'error': '비밀번호는 4자 이상으로 설정해 주세요.'}), 400
+    new_password = str(d.get('password') or '').strip()
+    if len(new_password) < 12:
+        return jsonify({'error': '비밀번호는 12자 이상으로 설정해 주세요.'}), 400
     con = db()
     cur = con.execute("UPDATE users SET passwordHash=? WHERE id=? AND role='STUDENT'",
                       (generate_password_hash(new_password), uid))
@@ -321,7 +374,7 @@ def download_student_csv_template():
     output = io.StringIO()
     writer = csv.writer(output, lineterminator='\n')
     writer.writerow(['아이디','이름','학번','학년','반','번호','초기비밀번호','진로','희망학과','희망직업','관심분야','관심키워드','선호역할'])
-    writer.writerow(['10901','김예시','10901','1','9','1','student123','컴퓨터 / IT','컴퓨터공학과','AI 개발자','AI,웹 개발','Python,AI','개발,발표'])
+    writer.writerow(['10901','김예시','10901','1','9','1','ChangeMe123!X','컴퓨터 / IT','컴퓨터공학과','AI 개발자','AI,웹 개발','Python,AI','개발,발표'])
     data = '\ufeff' + output.getvalue()
     return Response(data, mimetype='text/csv; charset=utf-8', headers={
         'Content-Disposition': 'attachment; filename=student_import_template.csv'
@@ -341,9 +394,12 @@ def import_students_csv():
         try:
             login_id=row.get('loginId') or row.get('아이디'); name=row.get('name') or row.get('이름')
             if not login_id or not name: raise ValueError('아이디/이름 누락')
+            csv_password = row.get('password') or row.get('초기비밀번호')
+            if not csv_password or len(str(csv_password)) < 12:
+                raise ValueError('초기 비밀번호는 12자 이상이어야 합니다.')
             con.execute('''INSERT INTO users(loginId,passwordHash,role,name,studentNumber,grade,classNumber,number,careerCategory,desiredMajor,desiredJob,interests,keywords,preferredRoles,createdAt)
                            VALUES(?,?,'STUDENT',?,?,?,?,?,?,?,?,?,?,?,?)''',
-                        (login_id,generate_password_hash(row.get('password') or row.get('초기비밀번호') or 'student123'),name,row.get('studentNumber') or row.get('학번',''),row.get('grade') or row.get('학년') or None,row.get('classNumber') or row.get('반') or None,row.get('number') or row.get('번호') or None,row.get('careerCategory') or row.get('진로',''),row.get('desiredMajor') or row.get('희망학과',''),row.get('desiredJob') or row.get('희망직업',''),jdump(row.get('interests') or row.get('관심분야','')),jdump(row.get('keywords') or row.get('관심키워드','')),jdump(row.get('preferredRoles') or row.get('선호역할','')),now())); added+=1
+                        (login_id,generate_password_hash(csv_password),name,row.get('studentNumber') or row.get('학번',''),row.get('grade') or row.get('학년') or None,row.get('classNumber') or row.get('반') or None,row.get('number') or row.get('번호') or None,row.get('careerCategory') or row.get('진로',''),row.get('desiredMajor') or row.get('희망학과',''),row.get('desiredJob') or row.get('희망직업',''),jdump(row.get('interests') or row.get('관심분야','')),jdump(row.get('keywords') or row.get('관심키워드','')),jdump(row.get('preferredRoles') or row.get('선호역할','')),now())); added+=1
         except Exception as e: skipped.append({'row':i,'reason':str(e)})
     con.commit(); con.close(); return jsonify({'ok':True,'added':added,'skipped':skipped})
 
@@ -571,4 +627,4 @@ def options(): return jsonify({'careerCategories':CAREER_CATEGORIES,'roles':ROLE
 
 if __name__ == '__main__':
     init_db()
-    app.run(host='0.0.0.0', port=int(os.environ.get('PORT',5000)), debug=True)
+    app.run(host='0.0.0.0', port=int(os.environ.get('PORT',5000)), debug=os.environ.get('FLASK_DEBUG') == '1')
