@@ -1,6 +1,6 @@
 """CareerMate student login ID convention.
 
-ks + admission year (YY) + grade (1-3) + class (01-10) + number (01-99).
+ks + admission year (YY) + grade (1-3) + class (01-10) + number (01-40).
 No accounts are created by this module.
 """
 import re
@@ -13,7 +13,7 @@ def make_student_login_id(admission_year, grade, class_number, student_number):
                for x in (admission_year, grade, class_number, student_number)):
         raise ValueError("Student ID fields must be integers")
     if not (2000 <= admission_year <= 2099 and 1 <= grade <= 3
-            and 1 <= class_number <= 10 and 1 <= student_number <= 99):
+            and 1 <= class_number <= 10 and 1 <= student_number <= 40):
         raise ValueError("Student ID fields are out of range")
     return f"ks{admission_year % 100:02d}{grade}{class_number:02d}{student_number:02d}"
 
