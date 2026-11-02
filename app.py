@@ -3,6 +3,8 @@ from datetime import datetime
 from functools import wraps
 from flask import Flask, request, jsonify, session, render_template, Response
 from werkzeug.security import generate_password_hash, check_password_hash
+from database import connect_database
+from student_ids import make_student_login_id, validate_student_login_id
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(BASE_DIR, 'school_team_match.db')
@@ -22,10 +24,7 @@ def now():
 
 
 def db():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    conn.execute('PRAGMA foreign_keys = ON')
-    return conn
+    return connect_database(DB_PATH, os.environ.get('DATABASE_URL', ''))
 
 
 def jdump(v):
@@ -71,6 +70,7 @@ def init_db():
       keywords TEXT DEFAULT '[]',
       preferredRoles TEXT DEFAULT '[]',
       accountStatus TEXT DEFAULT 'ACTIVE',
+      mustChangePassword INTEGER NOT NULL DEFAULT 0,
       createdAt TEXT NOT NULL
     );
     CREATE TABLE IF NOT EXISTS activities (
@@ -146,6 +146,11 @@ def init_db():
       FOREIGN KEY(userId) REFERENCES users(id) ON DELETE CASCADE
     );
     ''')
+    if not os.environ.get('DATABASE_URL'):
+        try:
+            con.execute('ALTER TABLE users ADD COLUMN mustChangePassword INTEGER NOT NULL DEFAULT 0')
+        except sqlite3.OperationalError as exc:
+            if 'duplicate column' not in str(exc).lower(): raise
     if os.environ.get('ADMIN_PASSWORD') and len(os.environ['ADMIN_PASSWORD']) < 12:
         raise RuntimeError('ADMIN_PASSWORD must be at least 12 characters')
     if os.environ.get('ADMIN_PASSWORD') and not con.execute("SELECT id FROM users WHERE loginId='admin'").fetchone():
@@ -174,6 +179,7 @@ def login_required(fn):
     @wraps(fn)
     def wrap(*args, **kwargs):
         if not session.get('user_id'): return jsonify({'error':'로그인이 필요합니다.'}), 401
+        if session.get('must_change_password') and request.endpoint != 'me': return jsonify({'error':'먼저 임시 비밀번호를 변경해 주세요.','mustChangePassword':True}), 403
         return fn(*args, **kwargs)
     return wrap
 
@@ -192,6 +198,7 @@ def student_required(fn):
     def wrap(*args, **kwargs):
         if not session.get('user_id'): return jsonify({'error':'로그인이 필요합니다.'}), 401
         if session.get('role') != 'STUDENT': return jsonify({'error':'학생 계정만 사용할 수 있습니다.'}), 403
+        if session.get('must_change_password'): return jsonify({'error':'먼저 임시 비밀번호를 변경해 주세요.','mustChangePassword':True}), 403
         return fn(*args, **kwargs)
     return wrap
 
@@ -235,7 +242,31 @@ def login():
     if not u or not check_password_hash(u['passwordHash'],data.get('password','')):
         return jsonify({'error':'아이디 또는 비밀번호가 올바르지 않습니다.'}),400
     session.clear(); session['user_id']=u['id']; session['role']=u['role']
-    return jsonify({'ok':True,'role':u['role'],'name':u['name']})
+    session['must_change_password']=bool(u.get('mustChangePassword', 0) if isinstance(u, dict) else u['mustChangePassword'])
+    return jsonify({'ok':True,'role':u['role'],'name':u['name'],'mustChangePassword':session['must_change_password']})
+
+@app.post('/api/change-password')
+def change_password():
+    if not session.get('user_id'):
+        return jsonify({'error':'로그인이 필요합니다.'}), 401
+    data=request.get_json(silent=True) or {}
+    old=data.get('currentPassword','')
+    new=data.get('newPassword','')
+    if not isinstance(old,str) or not isinstance(new,str) or len(new)<12 or old==new:
+        return jsonify({'error':'새 비밀번호는 기존과 달라야 하며 12자 이상이어야 합니다.'}), 400
+    con=db()
+    try:
+        u=con.execute('SELECT passwordHash FROM users WHERE id=?',(session['user_id'],)).fetchone()
+        if not u or not check_password_hash(u['passwordHash'],old):
+            return jsonify({'error':'현재 비밀번호가 올바르지 않습니다.'}), 403
+        con.execute('UPDATE users SET passwordHash=?,mustChangePassword=0 WHERE id=?',
+                    (generate_password_hash(new),session['user_id']))
+        con.commit()
+        session['must_change_password']=False
+        return jsonify({'ok':True})
+    finally:
+        con.close()
+
 
 @app.post('/api/logout')
 def logout(): session.clear(); return jsonify({'ok':True})
@@ -245,7 +276,7 @@ def logout(): session.clear(); return jsonify({'ok':True})
 def me():
     con=db(); u=con.execute('SELECT * FROM users WHERE id=?',(session['user_id'],)).fetchone()
     unread=con.execute('SELECT COUNT(*) c FROM notifications WHERE userId=? AND isRead=0',(u['id'],)).fetchone()['c']; con.close()
-    d=user_public(u); d.update({'role':u['role'],'loginId':u['loginId'],'unread':unread}); return jsonify(d)
+    d=user_public(u); d.update({'role':u['role'],'loginId':u['loginId'],'unread':unread,'mustChangePassword':bool(u['mustChangePassword'])}); return jsonify(d)
 
 @app.put('/api/profile')
 @student_required
@@ -265,12 +296,25 @@ def admin_students():
 @admin_required
 def admin_add_student():
     d=request.get_json(force=True)
+    if not d.get('loginId') and all(d.get(k) is not None for k in ('admissionYear', 'grade', 'classNumber', 'number')):
+        try:
+            d['loginId'] = make_student_login_id(int(d['admissionYear']), int(d['grade']), int(d['classNumber']), int(d['number']))
+        except (ValueError, TypeError):
+            return jsonify({'error':'입학연도, 학년(1~3), 반(1~10), 번호(1~40)를 확인해 주세요.'}),400
+    if str(d.get('loginId', '')).startswith('ks'):
+        try:
+            info = validate_student_login_id(d['loginId'])
+            for field, key in [('grade','grade'), ('classNumber','class_number'), ('number','student_number')]:
+                if d.get(field) is not None and int(d[field]) != info[key]:
+                    raise ValueError('ID does not match student fields')
+        except (ValueError, TypeError):
+            return jsonify({'error':'학생 아이디 형식 또는 학년·반·번호가 일치하지 않습니다.'}),400
     if not d.get('password') or len(str(d['password'])) < 12:
         return jsonify({'error':'학생 초기 비밀번호는 12자 이상으로 지정해야 합니다.'}),400
     con=db()
     try:
-        cur=con.execute('''INSERT INTO users(loginId,passwordHash,role,name,studentNumber,grade,classNumber,number,careerCategory,desiredMajor,desiredJob,interests,keywords,preferredRoles,createdAt)
-                           VALUES(?,?,'STUDENT',?,?,?,?,?,?,?,?,?,?,?,?)''',
+        cur=con.execute('''INSERT INTO users(loginId,passwordHash,role,name,studentNumber,grade,classNumber,number,careerCategory,desiredMajor,desiredJob,interests,keywords,preferredRoles,createdAt,mustChangePassword)
+                           VALUES(?,?,'STUDENT',?,?,?,?,?,?,?,?,?,?,?,?,1)''',
                         (d['loginId'],generate_password_hash(d.get('password') or os.urandom(18).hex()),d['name'],d.get('studentNumber',''),d.get('grade'),d.get('classNumber'),d.get('number'),d.get('careerCategory',''),d.get('desiredMajor',''),d.get('desiredJob',''),jdump(d.get('interests',[])),jdump(d.get('keywords',[])),jdump(d.get('preferredRoles',[])),now()))
         con.commit(); return jsonify({'ok':True,'id':cur.lastrowid})
     except sqlite3.IntegrityError:

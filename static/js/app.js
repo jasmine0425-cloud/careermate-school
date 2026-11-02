@@ -7,8 +7,10 @@ const esc=s=>String(s??'').replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&
 const tags=a=>(a||[]).map(x=>`<span class="tag">${esc(x)}</span>`).join('');
 const statusLabel=s=>({RECRUITING:'🟢 모집 중',COMPLETE:'🔵 팀 구성 완료',CLOSED:'⚪ 모집 종료',waiting:'🟡 확인 대기',confirmed:'확정',rejected:'거절'}[s]||s);
 
-async function boot(){ options=await api('/api/options'); try{me=await api('/api/me'); showApp(); navigate(me.role==='ADMIN'?'admin-dashboard':'home')}catch{} }
-$('#loginForm').addEventListener('submit',async e=>{e.preventDefault();try{await api('/api/login',{method:'POST',body:JSON.stringify({loginId:$('#loginId').value,password:$('#loginPw').value})});me=await api('/api/me');showApp();navigate(me.role==='ADMIN'?'admin-dashboard':'home')}catch(err){toast(err.message)}});
+async function boot(){ options=await api('/api/options'); try{me=await api('/api/me'); if(me.mustChangePassword){showPasswordChange();return;}showApp();navigate(me.role==='ADMIN'?'admin-dashboard':'home')}catch{} }
+$('#loginForm').addEventListener('submit',async e=>{e.preventDefault();try{const result=await api('/api/login',{method:'POST',body:JSON.stringify({loginId:$('#loginId').value,password:$('#loginPw').value})});if(result.mustChangePassword){showPasswordChange();return;}me=await api('/api/me');showApp();navigate(me.role==='ADMIN'?'admin-dashboard':'home')}catch(err){toast(err.message)}});
+function showPasswordChange(){ $('#loginView').classList.add('hidden');$('#appView').classList.add('hidden');$('#passwordChangeView').classList.remove('hidden'); }
+$('#passwordChangeForm').addEventListener('submit',async e=>{e.preventDefault();const currentPassword=$('#oldPassword').value,newPassword=$('#newPassword').value;if(newPassword!==$('#confirmPassword').value){toast('새 비밀번호가 일치하지 않습니다.');return;}try{await api('/api/change-password',{method:'POST',body:JSON.stringify({currentPassword,newPassword})});$('#passwordChangeView').classList.add('hidden');me=await api('/api/me');showApp();navigate(me.role==='ADMIN'?'admin-dashboard':'home')}catch(err){toast(err.message)}});
 $('#logoutBtn').onclick=async()=>{await api('/api/logout',{method:'POST'});me=null;$('#appView').classList.add('hidden');$('#loginView').classList.remove('hidden')};
 $('#bellBtn').onclick=()=>navigate('notifications');
 
