@@ -10,7 +10,7 @@ class StudentIdTests(unittest.TestCase):
 
     def test_ordering(self):
         ids = [make_student_login_id(2026, 1, c, n)
-               for c in range(1, 11) for n in range(1, 31)]
+               for c in range(1, 11) for n in range(1, 41)]
         self.assertEqual(ids, sorted(ids))
         self.assertEqual(len(ids), len(set(ids)))
 
@@ -21,10 +21,10 @@ class StudentIdTests(unittest.TestCase):
         })
 
     def test_invalid(self):
-        for args in [(2026,1,0,1), (2026,1,11,1), (2026,1,1,0), (2026,4,1,1)]:
+        for args in [(2026,1,0,1), (2026,1,11,1), (2026,1,1,0), (2026,4,1,1), (2026,1,1,41)]:
             with self.subTest(args=args), self.assertRaises(ValueError):
                 make_student_login_id(*args)
-        for value in ["ks2611101", "ks2610100", "ks2610001", "ks261010", "admin"]:
+        for value in ["ks2611101", "ks2610100", "ks2610141", "ks2610001", "ks261010", "admin"]:
             with self.subTest(value=value), self.assertRaises(ValueError):
                 parse_student_login_id(value)
 
