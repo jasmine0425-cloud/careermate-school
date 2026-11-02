@@ -179,7 +179,7 @@ def login_required(fn):
     @wraps(fn)
     def wrap(*args, **kwargs):
         if not session.get('user_id'): return jsonify({'error':'로그인이 필요합니다.'}), 401
-        if session.get('must_change_password'): return jsonify({'error':'먼저 임시 비밀번호를 변경해 주세요.','mustChangePassword':True}), 403
+        if session.get('must_change_password') and request.endpoint != 'me': return jsonify({'error':'먼저 임시 비밀번호를 변경해 주세요.','mustChangePassword':True}), 403
         return fn(*args, **kwargs)
     return wrap
 
