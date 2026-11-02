@@ -85,6 +85,7 @@ class CareerMateWorkflowTests(unittest.TestCase):
         aid = activity.json["id"]
         self.client.post("/api/logout")
         self.login("leader", "StudentPassword!2026")
+        self.assertEqual(self.client.post("/api/change-password", json={"currentPassword":"StudentPassword!2026","newPassword":"LeaderNewPassword!2026"}).status_code, 200)
         team = self.client.post("/api/teams", json={
             "activityId": aid, "teamName": "Test Team"
         })
