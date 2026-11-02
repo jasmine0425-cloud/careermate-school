@@ -8,8 +8,8 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(BASE_DIR, 'school_team_match.db')
 
 app = Flask(__name__)
-app.secret_key = os.environ.get('SECRET_KEY', 'change-this-secret-key-before-deploy')
-app.config.update(SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE='Lax')
+app.secret_key = os.environ.get('SECRET_KEY') or os.urandom(32).hex()
+app.config.update(SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE='Lax', SESSION_COOKIE_SECURE=os.environ.get('FLASK_ENV') == 'production')
 
 CAREER_CATEGORIES = ['컴퓨터 / IT','AI','소프트웨어','전자공학','반도체','기계공학','생명과학','화학','의학 / 보건','경영 / 경제','심리 / 사회','교육','미디어','디자인','건축','인문','법학','기타']
 ROLE_OPTIONS = ['팀장','기획','자료조사','개발','디자인','발표','PPT 제작','보고서 작성','실험','데이터 분석','하드웨어 제작','영상 제작','기타']
@@ -144,9 +144,9 @@ def init_db():
       FOREIGN KEY(userId) REFERENCES users(id) ON DELETE CASCADE
     );
     ''')
-    if not con.execute("SELECT id FROM users WHERE loginId='admin'").fetchone():
+    if os.environ.get('ADMIN_PASSWORD') and not con.execute("SELECT id FROM users WHERE loginId='admin'").fetchone():
         con.execute('INSERT INTO users(loginId,passwordHash,role,name,createdAt) VALUES(?,?,?,?,?)',
-                    ('admin', generate_password_hash('Admin123!'), 'ADMIN', '학교 관리자', now()))
+                    ('admin', generate_password_hash(os.environ['ADMIN_PASSWORD']), 'ADMIN', '학교 관리자', now()))
     sample_students = [
       ('20261001','김하늘',1,1,1,'kimsky','AI','컴퓨터공학','AI 개발자',['AI','웹 개발','앱 개발'],['Python','Flask','데이터'],['개발','데이터 분석']),
       ('20261002','박서연',1,1,2,'parksy','디자인','산업디자인','UX 디자이너',['디자인','UI/UX','영상'],['Figma','UI','브랜딩'],['디자인','PPT 제작']),
@@ -154,12 +154,12 @@ def init_db():
       ('20261004','최민지',1,2,4,'choimj','경영 / 경제','경영학','서비스 기획자',['마케팅','사회문제','창업'],['기획','시장조사','발표'],['기획','발표']),
       ('20261005','정다은',1,3,5,'jungde','생명과학','생명공학','연구원',['바이오','의료','환경'],['실험','바이오','환경'],['실험','자료조사']),
     ]
-    for s in sample_students:
+    for s in (sample_students if os.environ.get('ENABLE_DEMO_DATA') == '1' else []):
         if not con.execute('SELECT id FROM users WHERE loginId=?',(s[5],)).fetchone():
             con.execute('''INSERT INTO users(studentNumber,name,grade,classNumber,number,loginId,passwordHash,role,careerCategory,desiredMajor,desiredJob,interests,keywords,preferredRoles,createdAt)
                            VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',
-                        (s[0],s[1],s[2],s[3],s[4],s[5],generate_password_hash('student123'),'STUDENT',s[6],s[7],s[8],jdump(s[9]),jdump(s[10]),jdump(s[11]),now()))
-    if not con.execute('SELECT id FROM activities').fetchone():
+                        (s[0],s[1],s[2],s[3],s[4],s[5],generate_password_hash(os.environ.get('DEMO_STUDENT_PASSWORD') or os.urandom(18).hex()),'STUDENT',s[6],s[7],s[8],jdump(s[9]),jdump(s[10]),jdump(s[11]),now()))
+    if os.environ.get('ENABLE_DEMO_DATA') == '1' and not con.execute('SELECT id FROM activities').fetchone():
         con.execute('''INSERT INTO activities(title,description,startDate,endDate,minMembers,maxMembers,recommendedFields,recruitmentDeadline,createdAt)
                        VALUES(?,?,?,?,?,?,?,?,?)''',
                     ('AI 융합 캠프','진로 융합형 프로젝트 팀 활동','2026-09-20','2026-10-10',2,5,jdump(['AI','소프트웨어','디자인','전자공학']),'2026-09-19',now()))
@@ -264,7 +264,7 @@ def admin_add_student():
     try:
         cur=con.execute('''INSERT INTO users(loginId,passwordHash,role,name,studentNumber,grade,classNumber,number,careerCategory,desiredMajor,desiredJob,interests,keywords,preferredRoles,createdAt)
                            VALUES(?,?,'STUDENT',?,?,?,?,?,?,?,?,?,?,?,?)''',
-                        (d['loginId'],generate_password_hash(d.get('password','student123')),d['name'],d.get('studentNumber',''),d.get('grade'),d.get('classNumber'),d.get('number'),d.get('careerCategory',''),d.get('desiredMajor',''),d.get('desiredJob',''),jdump(d.get('interests',[])),jdump(d.get('keywords',[])),jdump(d.get('preferredRoles',[])),now()))
+                        (d['loginId'],generate_password_hash(d.get('password') or os.urandom(18).hex()),d['name'],d.get('studentNumber',''),d.get('grade'),d.get('classNumber'),d.get('number'),d.get('careerCategory',''),d.get('desiredMajor',''),d.get('desiredJob',''),jdump(d.get('interests',[])),jdump(d.get('keywords',[])),jdump(d.get('preferredRoles',[])),now()))
         con.commit(); return jsonify({'ok':True,'id':cur.lastrowid})
     except sqlite3.IntegrityError:
         return jsonify({'error':'이미 사용 중인 아이디입니다.'}),400
@@ -304,9 +304,9 @@ def admin_update_student(uid):
 @admin_required
 def admin_reset_student_password(uid):
     d = request.get_json(silent=True) or {}
-    new_password = str(d.get('password') or 'student123').strip()
-    if len(new_password) < 4:
-        return jsonify({'error': '비밀번호는 4자 이상으로 설정해 주세요.'}), 400
+    new_password = str(d.get('password') or '').strip()
+    if len(new_password) < 12:
+        return jsonify({'error': '비밀번호는 12자 이상으로 설정해 주세요.'}), 400
     con = db()
     cur = con.execute("UPDATE users SET passwordHash=? WHERE id=? AND role='STUDENT'",
                       (generate_password_hash(new_password), uid))
@@ -571,4 +571,4 @@ def options(): return jsonify({'careerCategories':CAREER_CATEGORIES,'roles':ROLE
 
 if __name__ == '__main__':
     init_db()
-    app.run(host='0.0.0.0', port=int(os.environ.get('PORT',5000)), debug=True)
+    app.run(host='0.0.0.0', port=int(os.environ.get('PORT',5000)), debug=os.environ.get('FLASK_DEBUG') == '1')
