@@ -286,6 +286,8 @@ def admin_update_student(uid):
     if not login_id or not name:
         return jsonify({'error': '이름과 로그인 아이디는 필수입니다.'}), 400
 
+    if d.get('password') and len(str(d['password'])) < 12:
+        return jsonify({'error':'비밀번호는 12자 이상이어야 합니다.'}),400
     con = db()
     try:
         exists = con.execute("SELECT id FROM users WHERE id=? AND role='STUDENT'", (uid,)).fetchone()
@@ -297,8 +299,6 @@ def admin_update_student(uid):
                     (login_id, name, d.get('studentNumber',''), d.get('grade'), d.get('classNumber'), d.get('number'),
                      d.get('careerCategory',''), d.get('desiredMajor',''), d.get('desiredJob',''), jdump(d.get('interests',[])),
                      jdump(d.get('keywords',[])), jdump(d.get('preferredRoles',[])), d.get('accountStatus','ACTIVE'), uid))
-        if d.get('password') and len(str(d['password'])) < 12:
-            return jsonify({'error':'비밀번호는 12자 이상이어야 합니다.'}),400
         if d.get('password'):
             con.execute('UPDATE users SET passwordHash=? WHERE id=?', (generate_password_hash(d['password']), uid))
         con.commit()
