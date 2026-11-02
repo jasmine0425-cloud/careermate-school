@@ -60,11 +60,14 @@ class PostgresConnection:
                                          cursor_factory=psycopg.ClientCursor,
                                          connect_timeout=10, prepare_threshold=None,
                                          **options)
+        self.connection.execute('CREATE SCHEMA IF NOT EXISTS careermate')
         self.connection.execute('SET search_path TO careermate, pg_catalog')
 
     def execute(self, statement, parameters=()):
         sql = postgres_sql(statement).rstrip().rstrip(';')
         insert = bool(re.match(r'\s*INSERT\s+INTO\s+', sql, re.I))
+        if insert and re.search(r'\bRETURNING\b', sql, re.I):
+            raise ValueError('INSERT statements must not supply RETURNING; the adapter supplies it')
         if insert:
             sql += ' RETURNING id'
         # A duplicate row must not invalidate the rest of a CSV import or invite.
