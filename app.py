@@ -268,7 +268,7 @@ def admin_add_student():
         try:
             d['loginId'] = make_student_login_id(int(d['admissionYear']), int(d['grade']), int(d['classNumber']), int(d['number']))
         except (ValueError, TypeError):
-            return jsonify({'error':'입학연도, 학년(1~3), 반(1~10), 번호(1~99)를 확인해 주세요.'}),400
+            return jsonify({'error':'입학연도, 학년(1~3), 반(1~10), 번호(1~40)를 확인해 주세요.'}),400
     if str(d.get('loginId', '')).startswith('ks'):
         try:
             info = validate_student_login_id(d['loginId'])
