@@ -4,6 +4,7 @@ from functools import wraps
 from flask import Flask, request, jsonify, session, render_template, Response
 from werkzeug.security import generate_password_hash, check_password_hash
 from database import connect_database
+from student_ids import make_student_login_id, validate_student_login_id
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(BASE_DIR, 'school_team_match.db')
@@ -263,6 +264,19 @@ def admin_students():
 @admin_required
 def admin_add_student():
     d=request.get_json(force=True)
+    if not d.get('loginId') and all(d.get(k) is not None for k in ('admissionYear', 'grade', 'classNumber', 'number')):
+        try:
+            d['loginId'] = make_student_login_id(int(d['admissionYear']), int(d['grade']), int(d['classNumber']), int(d['number']))
+        except (ValueError, TypeError):
+            return jsonify({'error':'입학연도, 학년(1~3), 반(1~10), 번호(1~99)를 확인해 주세요.'}),400
+    if str(d.get('loginId', '')).startswith('ks'):
+        try:
+            info = validate_student_login_id(d['loginId'])
+            for field, key in [('grade','grade'), ('classNumber','class_number'), ('number','student_number')]:
+                if d.get(field) is not None and int(d[field]) != info[key]:
+                    raise ValueError('ID does not match student fields')
+        except (ValueError, TypeError):
+            return jsonify({'error':'학생 아이디 형식 또는 학년·반·번호가 일치하지 않습니다.'}),400
     if not d.get('password') or len(str(d['password'])) < 12:
         return jsonify({'error':'학생 초기 비밀번호는 12자 이상으로 지정해야 합니다.'}),400
     con=db()
