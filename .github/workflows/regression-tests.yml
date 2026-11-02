@@ -5,10 +5,15 @@ on:
     branches:
       - fix/security-hardening-20261102
       - feature/postgres-integration-20261102
+      - fix/supabase-readonly-compat-20261102
+      - feature/student-id-scheme-20261102
   pull_request:
     branches:
       - main
       - fix/security-hardening-20261102
+      - feature/postgres-integration-20261102
+      - fix/supabase-readonly-compat-20261102
+      - docs/render-deployment-readiness-20261102
   workflow_dispatch:
 
 jobs:
@@ -36,6 +41,8 @@ jobs:
           python-version: '3.12'
           cache: pip
       - run: pip install -r requirements.txt
+      - name: Prepare disposable PostgreSQL test schema
+        run: python -c "import psycopg; c=psycopg.connect('postgresql://careermate_test:disposable_test_password@127.0.0.1:5432/careermate_test'); c.execute('CREATE SCHEMA IF NOT EXISTS careermate'); c.commit(); c.close()"
       - run: python -m unittest discover -s tests -v
         env:
           FLASK_DEBUG: '0'

@@ -31,6 +31,8 @@ def postgres_sql(statement):
             if value == '"ACTIVE"':
                 return "'ACTIVE'"
             return value
+        if value in ('CURRENT_TIMESTAMP', 'CURRENT_DATE', 'CURRENT_TIME'):
+            return value
         if not value.isupper() and any(c.isupper() for c in value):
             return '"' + value + '"'
         return value
@@ -60,8 +62,8 @@ class PostgresConnection:
                                          cursor_factory=psycopg.ClientCursor,
                                          connect_timeout=10, prepare_threshold=None,
                                          **options)
-        self.connection.execute('CREATE SCHEMA IF NOT EXISTS careermate')
-        self.connection.execute('SET search_path TO careermate, pg_catalog')
+        # Connecting to an existing Supabase schema must not execute DDL.
+        self.connection.execute('SET search_path TO careermate')
 
     def execute(self, statement, parameters=()):
         sql = postgres_sql(statement).rstrip().rstrip(';')
@@ -86,7 +88,6 @@ class PostgresConnection:
         return PostgresCursor(cursor, lastrowid)
 
     def executescript(self, script):
-        self.connection.execute('CREATE SCHEMA IF NOT EXISTS careermate')
         for statement in script.split(';'):
             if statement.strip():
                 self.execute(statement)
